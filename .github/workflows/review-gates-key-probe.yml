@@ -1,0 +1,29 @@
+name: Review gates key probe
+
+# Temporary: answers whether the repo's OPENAI_API_KEY secret can call the OpenAI Decisions API.
+# Lives only on the review-gates-key-probe branch, which is deleted after one run.
+on:
+  push:
+    branches: [review-gates-key-probe]
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call openai-decisions gpt-6-luna with the repo secret
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        # Prints only the HTTP status, error type/code and the answering model: an OpenAI 401
+        # message echoes a partly masked key, so the response message is never printed.
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then echo "key_present=true"; else echo "key_present=false"; fi
+          status=$(curl -sS -o body.json -w '%{http_code} %{time_total}' https://api.openai.com/v1/decisions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"gpt-6-luna","input":"The sky is blue today.","questions":[{"type":"predicate","name":"q","instructions":"Does the text describe the sky?"}]}')
+          echo "http_status_and_seconds=$status"
+          jq -r '"error_type=\(.error.type // "none") error_code=\(.error.code // "none") model=\(.model // "none") answers=\(.answers // [] | length)"' body.json || echo "body_not_json=true"
+          rm -f body.json
